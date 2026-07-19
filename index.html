@@ -6,7 +6,7 @@
 <title>ICT Trading Journal</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght=500;600;700&family=Inter:wght=400;500;600;700&display=swap');
   :root{
     --bg:#0B0E14; --surface:#131820; --surface2:#0F1319; --border:#1E242D; --border-l:#252C36;
     --gold:#C9A227; --gold-l:#DBB544; --green:#3FB68B; --red:#E5484D;
@@ -112,6 +112,10 @@ let state = {
   draft: null,
 };
 
+// Global variables to track form state dynamically
+let curDir = "Buy";
+let curResult = "Win";
+
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function fmtMoney(n){ n=Number(n)||0; const s="$"+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); return (n>=0?"+":"-")+s; }
 function esc(s){ return (s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -172,7 +176,7 @@ function compressImage(file, maxWidth=900, quality=0.6){
   });
 }
 
-/* ---------------- icons (minimal inline svg) ---------------- */
+/* ---------------- icons ---------------- */
 const ICONS = {
   dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>',
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
@@ -205,7 +209,7 @@ function render(){
 function renderCalendar(){
   const d = state.calMonth;
   const year=d.getFullYear(), month=d.getMonth();
-  const firstDow = (new Date(year,month,1).getDay()+6)%7; // Mon=0
+  const firstDow = (new Date(year,month,1).getDay()+6)%7;
   const daysInMonth = new Date(year,month+1,0).getDate();
   const todayStr = new Date().toDateString();
   let cells="";
@@ -360,6 +364,9 @@ function renderDetail(){
 /* ---- trade form ---- */
 function renderForm(){
   const t = state.draft || {};
+  curDir = t.direction || "Buy";
+  curResult = t.result || "Win";
+  
   return `<div>
     <button class="btn-back" data-back="${t.id?'detail':'list'}">${ICONS.chev} Back</button>
     <h2 class="disp" style="font-size:19px; margin-bottom:16px;">${t.id?"Edit Trade":"New Trade"}</h2>
@@ -370,10 +377,10 @@ function renderForm(){
       <div><div class="lbl">Date & Time</div><input id="f-datetime" type="datetime-local" value="${t.datetime||new Date().toISOString().slice(0,16)}"></div>
     </div>
     <div class="grid2" style="margin-bottom:10px;">
-      <div><div class="lbl">Session</div><select id="f-session">${SESSIONS.map(s=>`<option ${t.session===s?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div><div class="lbl">Session</div><select id="f-session">${SESSIONS.map(s=>`<option ${t.session===s?"selected":""布局?" selected":""}>${s}</option>`).join("")}</select></div>
       <div><div class="lbl">Direction</div><div class="toggle2">
-        <button type="button" data-dir="Buy" class="${(t.direction||"Buy")==="Buy"?"on-green":""}">Buy</button>
-        <button type="button" data-dir="Sell" class="${t.direction==="Sell"?"on-red":""}">Sell</button>
+        <button type="button" data-dir="Buy" class="${curDir==="Buy"?"on-green":""}">Buy</button>
+        <button type="button" data-dir="Sell" class="${curDir==="Sell"?"on-red":""}">Sell</button>
       </div></div>
     </div>
     <div class="grid3" style="margin-bottom:10px;">
@@ -388,7 +395,7 @@ function renderForm(){
     </div>
     <div class="grid2" style="margin-bottom:18px;">
       <div><div class="lbl">Result</div><div class="chip-group" id="f-result">
-        ${RESULTS.map(r=>`<button type="button" data-result="${r}" class="chip ${(t.result||"Win")===r?(r==="Win"?"active-gold":r==="Loss"?"active-red":"active-gold"):""}" style="flex:1;">${r==="Break Even"?"BE":r}</button>`).join("")}
+        ${RESULTS.map(r=>`<button type="button" data-result="${r}" class="chip ${curResult===r?(r==="Win"?"active-gold":r==="Loss"?"active-red":"active-gold"):""}" style="flex:1;">${r==="Break Even"?"BE":r}</button>`).join("")}
       </div></div>
       <div><div class="lbl">P/L Amount ($)</div><input id="f-pnl" value="${t.pnl??""}" placeholder="150"></div>
     </div>
@@ -400,7 +407,7 @@ function renderForm(){
 
     <div class="section-lbl">Psychology</div>
     <div class="grid2" style="margin-bottom:10px;">
-      <div><div class="lbl">Emotion Before Trade</div><select id="f-emotion">${EMOTIONS.map(e=>`<option ${t.emotion===e?"selected":""}>${e}</option>`).join("")}</select></div>
+      <div><div class="lbl">Emotion Before Trade</div><select id="f-emotion">${EMOTIONS.map(e=>`<option ${t.emotion===e?"selected":""布局?" selected":""}>${e}</option>`).join("")}</select></div>
       <div><div class="lbl">Discipline: <span id="f-disc-val">${t.disciplineScore||7}</span>/10</div><input id="f-discipline" type="range" min="1" max="10" value="${t.disciplineScore||7}" style="accent-color:var(--gold); padding:9px 0;"></div>
     </div>
     <div style="margin-bottom:10px;"><div class="lbl">Mistakes Made</div>
@@ -519,13 +526,11 @@ function afterFormRender(){
 
   document.getElementById("f-discipline").addEventListener("input",e=>{ document.getElementById("f-disc-val").textContent=e.target.value; });
 
-  let curDir=(state.draft&&state.draft.direction)||"Buy";
   document.querySelectorAll("[data-dir]").forEach(btn=>btn.addEventListener("click",()=>{
     curDir=btn.dataset.dir;
     document.querySelectorAll("[data-dir]").forEach(b=>b.className=b.dataset.dir===curDir?(curDir==="Buy"?"on-green":"on-red"):"");
   }));
 
-  let curResult=(state.draft&&state.draft.result)||"Win";
   document.querySelectorAll("[data-result]").forEach(btn=>btn.addEventListener("click",()=>{
     curResult=btn.dataset.result;
     document.querySelectorAll("[data-result]").forEach(b=>{
