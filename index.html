@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ICT Trading Journal.</title>⁠
+<title>ICT Trading Journal</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght=500;600;700&family=Inter:wght=400;500;600;700&display=swap');
@@ -82,7 +82,36 @@
 /* ---------------- config ---------------- */
 const SESSIONS=["Asia","London","New York"];
 const RESULTS=["Win","Loss","Break Even"];
-const CONCEPTS=["Market Structure","BOS","CHoCH","Liquidity Sweep","Order Block","Fair Value Gap","Premium/Discount","OTE Entry"];
+const CONCEPTS_DEFAULT=["Market Structure","BOS","CHoCH","Liquidity Sweep","Order Block","Fair Value Gap","Premium/Discount","OTE Entry"];
+
+/* Full ICT / Smart Money Concepts term library, grouped by category.
+   Users pick which terms they actually use from here (see "Terms" tab);
+   selected terms become the checklist shown on the trade form. */
+const ICT_LIBRARY = {
+  "Bozor strukturasi": ["Market Structure","BOS","CHoCH","MSS","HH","HL","LH","LL","Expansion","Retracement","Consolidation","Reversal","Continuation"],
+  "Likvidlik": ["Liquidity","Buy Side Liquidity (BSL)","Sell Side Liquidity (SSL)","Internal Liquidity","External Liquidity","Liquidity Grab","Liquidity Sweep","Equal Highs (EQH)","Equal Lows (EQL)","Resting Liquidity","Engineered Liquidity"],
+  "Smart Money": ["Smart Money","Institutional Order Flow","Displacement","Inducement","Mitigation","Repricing","Delivery"],
+  "Order Block va zonalar": ["Bullish Order Block","Bearish Order Block","Breaker Block","Mitigation Block","Rejection Block","Propulsion Block","Institutional Candle"],
+  "Imbalance": ["Fair Value Gap (FVG)","Inverse Fair Value Gap (IFVG)","Volume Imbalance (VI)","Balanced Price Range (BPR)","Inefficiency","Price Delivery Imbalance (PDI)"],
+  "Premium & Discount": ["Premium","Discount","Equilibrium (EQ)","Dealing Range","Midpoint (50%)","Optimal Trade Entry (OTE)","Fibonacci Retracement"],
+  "Kill Zones": ["Asian Kill Zone","London Kill Zone","New York Kill Zone","London Close Kill Zone"],
+  "Sessiyalar": ["Asian Session","London Session","New York Session","Midnight Open","Daily Open"],
+  "High & Low darajalari": ["PDH","PDL","PWH","PWL","PMH","PML"],
+  "Time Concepts": ["AMD","Judas Swing","Power of Three (PO3)","Time and Price","Daily Bias","Weekly Bias","Monthly Bias"],
+  "Entry modellari": ["Turtle Soup","SMT Divergence","Unicorn Model","Silver Bullet","Venom Model","CISD","AMD Entry","OTE Entry"],
+  "SMT": ["SMT Divergence","SMT Confirmation","SMT Failure"],
+  "Narx harakati": ["Raid","Rejection","Mitigation","Continuation","Expansion Leg","Correction","Pullback"],
+  "Boshqa terminlar": ["Consequent Encroachment (CE)","Draw on Liquidity","IPDA","Dealing Array","Market Maker Buy Model (MMBM)","Market Maker Sell Model (MMSM)","Institutional Sponsorship","Premium Array","Discount Array","Rebalance","Algorithmic Price Delivery"],
+};
+const LS_CUSTOM_CONCEPTS="ictj_customconcepts";
+function loadCustomConcepts(){ try{return JSON.parse(localStorage.getItem(LS_CUSTOM_CONCEPTS)||"null");}catch{return null;} }
+function saveCustomConcepts(list){ localStorage.setItem(LS_CUSTOM_CONCEPTS, JSON.stringify(list)); }
+/* Returns the active checklist: user's chosen terms if they've saved any, otherwise the default 8. */
+function getActiveConcepts(){
+  const custom = loadCustomConcepts();
+  return (custom && custom.length) ? custom : CONCEPTS_DEFAULT;
+}
+const CONCEPTS=CONCEPTS_DEFAULT;
 const EMOTIONS=["Calm","Confident","Fearful","Greedy","FOMO","Revenge","Impatient","Neutral"];
 const MISTAKES=["Early Entry","Late Entry","Moved SL","Oversized","No Confirmation","FOMO Entry","Ignored Plan","Overtrading"];
 const PHASES=["Phase 1","Phase 2","Funded"];
@@ -132,7 +161,7 @@ function computeStats(){
   const grossLoss = Math.abs(losses.reduce((s,t)=>s+(Number(t.pnl)||0),0));
   const profitFactor = grossLoss>0? grossProfit/grossLoss : (grossProfit>0? Infinity : 0);
   const sorted=[...closed].sort((a,b)=>new Date(a.datetime)-new Date(b.datetime));
-  let equity=state.balance, peak=equity, maxDD=0;
+  let equity=getBaseBalance(), peak=equity, maxDD=0;
   sorted.forEach(t=>{ equity+=Number(t.pnl)||0; peak=Math.max(peak,equity); maxDD=Math.max(maxDD, peak>0?((peak-equity)/peak)*100:0); });
   const bySession={}; SESSIONS.forEach(s=>bySession[s]={pnl:0,count:0});
   closed.forEach(t=>{ if(bySession[t.session]){bySession[t.session].pnl+=Number(t.pnl)||0; bySession[t.session].count++;} });
@@ -148,11 +177,43 @@ function computeStats(){
   return {total:state.trades.length, wins:wins.length, losses:losses.length, be:closed.length-wins.length-losses.length,
     winRate, avgRR, profitFactor, maxDD, bestSession, bestSetup, avgDiscipline, topMistake, netPnl};
 }
+/* ---- ICT combination analytics ----
+   Groups closed trades by the exact set of ICT concepts they used
+   together (order-independent), so we can see which combos actually
+   make money and which ones bleed money — not just single concepts. */
+function comboKey(t){
+  const c=(t.concepts||[]).slice().sort();
+  return c.length ? c.join(" + ") : null;
+}
+function computeCombos(){
+  const closed = state.trades.filter(t=>t.result);
+  const map=new Map();
+  closed.forEach(t=>{
+    const key=comboKey(t);
+    if(!key) return;
+    if(!map.has(key)) map.set(key,{key, count:0, wins:0, losses:0, be:0, pnl:0});
+    const o=map.get(key);
+    o.count++; o.pnl+=Number(t.pnl)||0;
+    if(t.result==="Win") o.wins++;
+    else if(t.result==="Loss") o.losses++;
+    else o.be++;
+  });
+  return [...map.values()].map(o=>({...o, winRate: o.count? (o.wins/o.count*100):0}));
+}
+
+/* Single source of truth for "account balance" used in % calculations.
+   If the person has set up a Real Account deposit, that's authoritative;
+   otherwise fall back to the old manually-edited balance. */
+function getBaseBalance(){
+  if(state.real && state.real.deposit>0) return state.real.deposit;
+  return state.balance;
+}
+
 function dayPct(dateStr){
   const trades = state.trades.filter(t=>t.result && new Date(t.datetime).toDateString()===new Date(dateStr).toDateString());
   if(!trades.length) return null;
   const pnl = trades.reduce((s,t)=>s+(Number(t.pnl)||0),0);
-  return state.balance>0 ? (pnl/state.balance*100) : 0;
+  return getBaseBalance()>0 ? (pnl/getBaseBalance()*100) : 0;
 }
 
 /* ---------------- image compression ---------------- */
@@ -180,6 +241,7 @@ function compressImage(file, maxWidth=900, quality=0.6){
 const ICONS = {
   dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>',
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+  book2:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 7c-1.5-1.5-3.5-2-6-2v14c2.5 0 4.5.5 6 2 1.5-1.5 3.5-2 6-2V5c-2.5 0-4.5.5-6 2z"/><path d="M12 7v14"/></svg>',
   shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V5z"/></svg>',
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>',
   back:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>',
@@ -199,7 +261,8 @@ function render(){
   else if(state.view==="detail"){ mainHtml = renderDetail(); }
   else if(state.tab==="dashboard"){ mainHtml = renderDashboard(); }
   else if(state.tab==="journal"){ mainHtml = renderJournal(); }
-  else if(state.tab==="prop"){ mainHtml = renderProp(); }
+  else if(state.tab==="accounts"){ mainHtml = renderAccounts(); }
+  else if(state.tab==="terms"){ mainHtml = renderTerms(); }
   el.innerHTML = mainHtml + renderNav();
   attachGlobalHandlers();
   if(state.view==="form") afterFormRender();
@@ -242,14 +305,109 @@ function renderCalendar(){
   </div>`;
 }
 
+/* ---- equity / profit chart ---- */
+function renderEquityChart(){
+  const closed = state.trades.filter(t=>t.result).slice().sort((a,b)=>new Date(a.datetime)-new Date(b.datetime));
+  if(closed.length===0){
+    return `<div class="card" style="margin-bottom:14px;">
+      <div class="section-lbl">Profit Curve</div>
+      <div style="padding:30px 0; text-align:center; color:var(--text-faint); font-size:12.5px;">Log trades to see your equity curve</div>
+    </div>`;
+  }
+  // aggregate cumulative P/L per calendar day
+  const byDay = new Map();
+  let running = 0;
+  closed.forEach(t=>{
+    running += Number(t.pnl)||0;
+    const key = new Date(t.datetime).toDateString();
+    byDay.set(key, running);
+  });
+  const points = [...byDay.entries()].map(([k,v])=>({date:new Date(k), val:v}));
+  const W=100, H=42, padTop=6, padBottom=4;
+  const maxV = Math.max(...points.map(p=>p.val), 0);
+  const minV = Math.min(...points.map(p=>p.val), 0);
+  const range = (maxV-minV)||1;
+  const xStep = points.length>1 ? W/(points.length-1) : 0;
+  const coords = points.map((p,i)=>{
+    const x = points.length>1 ? i*xStep : W/2;
+    const y = padTop + (H-padTop-padBottom) * (1 - (p.val-minV)/range);
+    return {x,y,val:p.val,date:p.date};
+  });
+  const pathD = coords.map((c,i)=>(i===0?"M":"L")+c.x.toFixed(2)+","+c.y.toFixed(2)).join(" ");
+  const areaD = pathD + ` L${coords[coords.length-1].x.toFixed(2)},${H} L0,${H} Z`;
+  const last = coords[coords.length-1];
+  const first = coords[0];
+  const up = last.val >= first.val;
+  const lineColor = up ? "#3FB68B" : "#E5484D";
+  // pick up to 5 evenly spaced labels
+  const labelIdx = [];
+  const maxLabels = Math.min(5, coords.length);
+  for(let i=0;i<maxLabels;i++) labelIdx.push(Math.round(i*(coords.length-1)/(maxLabels-1||1)));
+  const uniqueIdx = [...new Set(labelIdx)];
+  return `<div class="card" style="margin-bottom:14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <div class="section-lbl" style="margin-bottom:0;">Profit Curve</div>
+      <div class="mono" style="font-size:13px; font-weight:700; color:${lineColor};">${fmtMoney(last.val)}</div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:110px; overflow:visible;" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="eqfade" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${lineColor}" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="${lineColor}" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaD}" fill="url(#eqfade)" stroke="none"/>
+      <path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="0.9" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <div style="display:flex; justify-content:space-between; margin-top:4px;">
+      ${uniqueIdx.map(i=>{
+        const c=coords[i];
+        return `<div style="text-align:center;"><div class="mono" style="font-size:9.5px; color:var(--text-mid);">$${c.val.toFixed(0)}</div><div style="font-size:8.5px; color:var(--text-faint);">${c.date.toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div></div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+/* ---- combo analysis card (best/worst ICT concept combinations) ---- */
+function renderComboAnalysis(){
+  const combos = computeCombos();
+  if(combos.length===0){
+    return `<div class="card" style="margin-bottom:14px;">
+      <div class="section-lbl">Kombinatsiya Tahlili</div>
+      <div style="padding:20px 0; text-align:center; color:var(--text-faint); font-size:12px;">ICT konseptlarini belgilab savdo qo'shsangiz, qaysi kombinatsiya foyda/zarar keltirayotgani shu yerda chiqadi</div>
+    </div>`;
+  }
+  const byPnlDesc = [...combos].sort((a,b)=>b.pnl-a.pnl);
+  const profitable = byPnlDesc.filter(c=>c.pnl>0).slice(0,4);
+  const losing = byPnlDesc.filter(c=>c.pnl<0).slice(-4).reverse();
+  const comboRow=(c, color)=>`
+    <div class="trade-card" style="margin-bottom:7px; padding:10px 12px;" data-combo="${esc(c.key)}">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:12px; font-weight:600; line-height:1.3; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">${esc(c.key)}</div>
+          <div class="sub" style="margin:3px 0 0; font-size:10.5px;">${c.count} savdo · ${c.winRate.toFixed(0)}% win rate</div>
+        </div>
+        <div class="mono" style="font-weight:700; font-size:13px; color:${color}; white-space:nowrap;">${fmtMoney(c.pnl)}</div>
+      </div>
+    </div>`;
+  return `<div class="card" style="margin-bottom:14px;">
+    <div class="section-lbl">Kombinatsiya Tahlili</div>
+    <p class="sub" style="margin:-2px 0 12px;">Qaysi ICT kombinatsiyasi ko'p foyda yoki zarar keltirayotganini ko'ring. Bosib, o'sha savdolarni ko'ring.</p>
+    ${profitable.length?`<div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--green); margin-bottom:6px;">Eng foydali</div>${profitable.map(c=>comboRow(c,"var(--green)")).join("")}`:""}
+    ${losing.length?`<div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--red); margin:${profitable.length?'14px':'0'} 0 6px;">Eng zararli</div>${losing.map(c=>comboRow(c,"var(--red)")).join("")}`:""}
+    ${(!profitable.length && !losing.length)?`<div style="text-align:center; color:var(--text-faint); font-size:12px; padding:10px 0;">Hali yetarli ma'lumot yo'q</div>`:""}
+  </div>`;
+}
+
 /* ---- dashboard ---- */
 function renderDashboard(){
   const s = computeStats();
   return `<div>
     <div style="display:flex; align-items:center; justify-content:space-between;">
       <div><h1 class="disp">Dashboard</h1><p class="sub">Performance overview</p></div>
-      <button data-editbalance style="background:none;border:1px solid var(--border-l);color:var(--text-mid);border-radius:8px;padding:6px 10px;font-size:11px;font-family:'SF Mono',monospace;">$${state.balance.toLocaleString()}</button>
+      <button data-editbalance style="background:none;border:1px solid var(--border-l);color:var(--text-mid);border-radius:8px;padding:6px 10px;font-size:11px;font-family:'SF Mono',monospace;">$${getBaseBalance().toLocaleString()}</button>
     </div>
+    ${renderEquityChart()}
     ${renderCalendar()}
     <div class="card" style="margin-bottom:10px;">
       <div class="lbl">Net P/L</div>
@@ -269,6 +427,7 @@ function renderDashboard(){
       <div class="stat-mini"><div class="lbl">Best Session</div><div style="color:var(--gold); font-weight:600; font-size:13.5px;">${s.bestSession?s.bestSession[0]:"—"}</div>${s.bestSession?`<div class="sub" style="margin:2px 0 0;">${fmtMoney(s.bestSession[1].pnl)}</div>`:""}</div>
       <div class="stat-mini"><div class="lbl">Best Setup</div><div style="color:var(--gold); font-weight:600; font-size:13.5px; line-height:1.3;">${s.bestSetup?s.bestSetup[0]:"—"}</div>${s.bestSetup?`<div class="sub" style="margin:2px 0 0;">${fmtMoney(s.bestSetup[1].pnl)}</div>`:""}</div>
     </div>
+    ${renderComboAnalysis()}
     <div class="card">
       <div class="section-lbl">Psychology Insights</div>
       <div class="grid2">
@@ -283,9 +442,11 @@ function renderDashboard(){
 function renderJournal(){
   let filtered = state.trades.filter(t=>state.filter==="all"||t.result===state.filter);
   if(state.dateFilter) filtered = filtered.filter(t=>new Date(t.datetime).toDateString()===state.dateFilter);
+  if(state.comboFilter) filtered = filtered.filter(t=>comboKey(t)===state.comboFilter);
   return `<div>
     <h1 class="disp">Journal</h1><p class="sub">${state.trades.length} trades logged</p>
     ${state.dateFilter?`<div class="chip active-gold" style="display:inline-flex; margin-bottom:10px;" data-cleardate>${new Date(state.dateFilter).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})} ✕</div>`:""}
+    ${state.comboFilter?`<div class="chip active-gold" style="display:inline-flex; margin-bottom:10px; max-width:100%; white-space:normal;" data-clearcombo>${esc(state.comboFilter)} ✕</div>`:""}
     <div class="chip-group" style="margin-bottom:14px;">
       ${["all","Win","Loss","Break Even"].map(f=>`<button class="chip ${state.filter===f?'active-gold':''}" data-filter="${f}">${f==="all"?"All":f}</button>`).join("")}
     </div>
@@ -366,7 +527,7 @@ function renderForm(){
   const t = state.draft || {};
   curDir = t.direction || "Buy";
   curResult = t.result || "Win";
-  
+
   return `<div>
     <button class="btn-back" data-back="${t.id?'detail':'list'}">${ICONS.chev} Back</button>
     <h2 class="disp" style="font-size:19px; margin-bottom:16px;">${t.id?"Edit Trade":"New Trade"}</h2>
@@ -377,7 +538,7 @@ function renderForm(){
       <div><div class="lbl">Date & Time</div><input id="f-datetime" type="datetime-local" value="${t.datetime||new Date().toISOString().slice(0,16)}"></div>
     </div>
     <div class="grid2" style="margin-bottom:10px;">
-      <div><div class="lbl">Session</div><select id="f-session">${SESSIONS.map(s=>`<option ${t.session===s?"selected":""布局?" selected":""}>${s}</option>`).join("")}</select></div>
+      <div><div class="lbl">Session</div><select id="f-session">${SESSIONS.map(s=>`<option ${t.session===s?"selected":""}>${s}</option>`).join("")}</select></div>
       <div><div class="lbl">Direction</div><div class="toggle2">
         <button type="button" data-dir="Buy" class="${curDir==="Buy"?"on-green":""}">Buy</button>
         <button type="button" data-dir="Sell" class="${curDir==="Sell"?"on-red":""}">Sell</button>
@@ -402,12 +563,13 @@ function renderForm(){
 
     <div class="section-lbl">ICT / Smart Money Concepts</div>
     <div class="chip-group" id="f-concepts" style="margin-bottom:18px;">
-      ${CONCEPTS.map(c=>`<button type="button" data-concept="${c}" class="chip ${((t.concepts||[]).includes(c))?"active-gold":""}">${c}</button>`).join("")}
+      ${getActiveConcepts().map(c=>`<button type="button" data-concept="${c}" class="chip ${((t.concepts||[]).includes(c))?"active-gold":""}">${c}</button>`).join("")}
     </div>
+    <div style="margin:-10px 0 18px;"><button type="button" data-goto-terms style="background:none;border:none;color:var(--text-dim);font-size:11px;text-decoration:underline;padding:0;">O'z terminlaringizni sozlash →</button></div>
 
     <div class="section-lbl">Psychology</div>
     <div class="grid2" style="margin-bottom:10px;">
-      <div><div class="lbl">Emotion Before Trade</div><select id="f-emotion">${EMOTIONS.map(e=>`<option ${t.emotion===e?"selected":""布局?" selected":""}>${e}</option>`).join("")}</select></div>
+      <div><div class="lbl">Emotion Before Trade</div><select id="f-emotion">${EMOTIONS.map(e=>`<option ${t.emotion===e?"selected":""}>${e}</option>`).join("")}</select></div>
       <div><div class="lbl">Discipline: <span id="f-disc-val">${t.disciplineScore||7}</span>/10</div><input id="f-discipline" type="range" min="1" max="10" value="${t.disciplineScore||7}" style="accent-color:var(--gold); padding:9px 0;"></div>
     </div>
     <div style="margin-bottom:10px;"><div class="lbl">Mistakes Made</div>
@@ -437,13 +599,69 @@ function renderForm(){
   </div>`;
 }
 
+/* ---- accounts: real deposit + prop firm ---- */
+const LS_REAL="ictj_realaccount";
+function loadReal(){ try{return JSON.parse(localStorage.getItem(LS_REAL)||"null");}catch{return null;} }
+function saveReal(r){ localStorage.setItem(LS_REAL, JSON.stringify(r)); }
+if(!state.accountMode) state.accountMode = "real";
+if(!state.real) state.real = loadReal();
+
+function renderAccounts(){
+  const modeSwitch = `
+    <div class="toggle2" style="margin-bottom:16px;">
+      <button type="button" data-accmode="real" class="${state.accountMode==="real"?"on-green":""}">Real Depozit</button>
+      <button type="button" data-accmode="prop" class="${state.accountMode==="prop"?"on-green":""}">Prop Firm</button>
+    </div>`;
+  if(state.accountMode==="real"){
+    return `<div><h1 class="disp">Hisob</h1><p class="sub">Real savdo depozitingiz</p>${modeSwitch}${renderRealAccount()}</div>`;
+  }
+  return `<div><h1 class="disp">Hisob</h1><p class="sub">Prop firm challenge / funded hisob</p>${modeSwitch}${renderProp()}</div>`;
+}
+
+function renderRealAccount(){
+  const r = state.real;
+  if(!r || state.view==="realedit"){
+    const d = r||{deposit:1000, broker:"", currency:"USD"};
+    return `<div>
+      <div style="margin-bottom:10px;"><div class="lbl">Depozit summasi ($)</div><input id="r-deposit" value="${d.deposit}"></div>
+      <div style="margin-bottom:18px;"><div class="lbl">Broker nomi (ixtiyoriy)</div><input id="r-broker" value="${esc(d.broker||"")}" placeholder="Masalan: Exness, IC Markets"></div>
+      <button class="btn-primary" id="save-real-btn">Saqlash</button>
+    </div>`;
+  }
+  const netPnl = state.trades.filter(t=>t.result).reduce((s,t)=>s+(Number(t.pnl)||0),0);
+  const currentBalance = r.deposit + netPnl;
+  const growthPct = r.deposit>0 ? (netPnl/r.deposit*100) : 0;
+  const closed = state.trades.filter(t=>t.result);
+  const wins = closed.filter(t=>t.result==="Win").length;
+  const winRate = closed.length ? (wins/closed.length*100) : 0;
+  let peak=r.deposit, running=r.deposit, maxDD=0;
+  [...closed].sort((a,b)=>new Date(a.datetime)-new Date(b.datetime)).forEach(t=>{
+    running+=Number(t.pnl)||0; peak=Math.max(peak,running); maxDD=Math.max(maxDD, peak>0?((peak-running)/peak)*100:0);
+  });
+  return `<div>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="sub" style="margin:0;">${r.broker?esc(r.broker):"Real hisob"}</div>
+      <button data-editreal style="background:none;border:none;color:var(--text-mid);font-size:12px; font-family:'SF Mono',monospace;">Tahrirlash</button>
+    </div>
+    <div class="card" style="margin:10px 0 12px;">
+      <div class="lbl">Joriy Balans</div>
+      <div class="mono" style="font-size:26px; font-weight:700; color:${netPnl>=0?'var(--green)':'var(--red)'};">$${currentBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      <div class="sub" style="margin:2px 0 0;">Depozit: $${r.deposit.toLocaleString()} · ${fmtMoney(netPnl)} (${growthPct>=0?"+":""}${growthPct.toFixed(1)}%)</div>
+    </div>
+    <div class="grid3">
+      <div class="stat-mini"><div class="lbl">Savdolar</div><div class="v">${closed.length}</div></div>
+      <div class="stat-mini"><div class="lbl">Win Rate</div><div class="v" style="color:var(--gold)">${winRate.toFixed(0)}%</div></div>
+      <div class="stat-mini"><div class="lbl">Max DD</div><div class="v" style="color:${maxDD>10?'var(--red)':'var(--text)'}">${maxDD.toFixed(1)}%</div></div>
+    </div>
+  </div>`;
+}
+
 /* ---- prop firm ---- */
 function renderProp(){
   const p = state.prop;
   if(!p || state.view==="propedit"){
     const d = p||{accountSize:10000,phase:"Phase 1",dailyLossLimit:5,maxDrawdown:10,profitTarget:8};
     return `<div>
-      <h1 class="disp">Prop Firm Setup</h1>
       <div style="margin-bottom:10px;"><div class="lbl">Account Size ($)</div><input id="p-size" value="${d.accountSize}"></div>
       <div style="margin-bottom:10px;"><div class="lbl">Challenge Phase</div><select id="p-phase">${PHASES.map(ph=>`<option ${d.phase===ph?"selected":""}>${ph}</option>`).join("")}</select></div>
       <div class="grid2" style="margin-bottom:10px;">
@@ -471,10 +689,9 @@ function renderProp(){
   const breached = todayLoss>=dailyLossAmt || maxDD>=p.maxDrawdown;
   return `<div>
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h1 class="disp">Prop Firm</h1>
+      <div class="sub" style="margin:0;">${p.phase} · $${p.accountSize.toLocaleString()} account</div>
       <button data-editprop style="background:none;border:none;color:var(--text-mid);font-size:12px; font-family:'SF Mono',monospace;">Edit</button>
     </div>
-    <p class="sub">${p.phase} · $${p.accountSize.toLocaleString()} account</p>
     <div class="card" style="margin-bottom:12px;">
       <div class="lbl">Current Balance</div>
       <div class="mono" style="font-size:23px; font-weight:700; color:${netPnl>=0?'var(--green)':'var(--red)'};">$${currentBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
@@ -505,8 +722,34 @@ function renderNav(){
   <nav class="navbar">
     ${item("dashboard",ICONS.dash,"Dashboard")}
     ${item("journal",ICONS.book,"Journal")}
-    ${item("prop",ICONS.shield,"Prop Firm")}
+    ${item("accounts",ICONS.shield,"Hisob")}
+    ${item("terms",ICONS.book2,"Terminlar")}
   </nav>`;
+}
+
+/* ---- ICT terms library screen ---- */
+function renderTerms(){
+  const selected = new Set(loadCustomConcepts() || CONCEPTS_DEFAULT);
+  const categories = Object.entries(ICT_LIBRARY).map(([cat, terms])=>{
+    return `<div class="card" style="margin-bottom:10px;">
+      <div class="section-lbl">${cat}</div>
+      <div class="chip-group">
+        ${terms.map(term=>`<button type="button" data-term="${esc(term)}" class="chip ${selected.has(term)?"active-gold":""}">${term}</button>`).join("")}
+      </div>
+    </div>`;
+  }).join("");
+  return `<div>
+    <h1 class="disp">ICT Terminlar</h1>
+    <p class="sub">Kerakli terminlarni tanlang — ular savdo shaklidagi checklist'ga chiqadi.</p>
+    <div class="row" style="margin-bottom:14px;">
+      <button class="btn-ghost" style="flex:1;" id="terms-selectall">Hammasini tanlash</button>
+      <button class="btn-ghost" style="flex:1;" id="terms-clear">Tozalash</button>
+    </div>
+    <div id="terms-list">${categories}</div>
+    <div class="sticky-save">
+      <button class="btn-primary" id="terms-save-btn">Saqlash (<span id="terms-count">${selected.size}</span> ta tanlangan)</button>
+    </div>
+  </div>`;
 }
 
 /* ---------------- form logic ---------------- */
@@ -654,10 +897,19 @@ function attachGlobalHandlers(){
     render();
   }));
   document.querySelectorAll("[data-cleardate]").forEach(c=>c.addEventListener("click",()=>{ state.dateFilter=null; render(); }));
+  document.querySelectorAll("[data-combo]").forEach(c=>c.addEventListener("click",()=>{
+    state.comboFilter=c.dataset.combo; state.dateFilter=null; state.filter="all"; state.tab="journal"; state.view="list"; render();
+  }));
+  document.querySelectorAll("[data-clearcombo]").forEach(c=>c.addEventListener("click",()=>{ state.comboFilter=null; render(); }));
   const editBal=document.querySelector("[data-editbalance]");
   if(editBal) editBal.addEventListener("click",()=>{
-    const v=prompt("Set your account balance (used for daily % calculation):", state.balance);
-    if(v!==null && !isNaN(parseFloat(v))){ state.balance=parseFloat(v); saveBalance(state.balance); render(); }
+    if(state.real && state.real.deposit>0){
+      const v=prompt("Real hisobingiz depozitini o'zgartirish (kalendar % shundan hisoblanadi):", state.real.deposit);
+      if(v!==null && !isNaN(parseFloat(v))){ state.real.deposit=parseFloat(v); saveReal(state.real); render(); }
+    } else {
+      const v=prompt("Set your account balance (used for daily % calculation):", state.balance);
+      if(v!==null && !isNaN(parseFloat(v))){ state.balance=parseFloat(v); saveBalance(state.balance); render(); }
+    }
   });
   const editProp=document.querySelector("[data-editprop]");
   if(editProp) editProp.addEventListener("click",()=>{ state.view="propedit"; render(); });
@@ -672,6 +924,58 @@ function attachGlobalHandlers(){
     };
     state.prop=p; saveProp(p); state.view="list"; render();
   });
+
+  // account mode switch (Real Deposit <-> Prop Firm)
+  document.querySelectorAll("[data-accmode]").forEach(b=>b.addEventListener("click",()=>{
+    state.accountMode=b.dataset.accmode; state.view="list"; render();
+  }));
+
+  // real account
+  const editReal=document.querySelector("[data-editreal]");
+  if(editReal) editReal.addEventListener("click",()=>{ state.view="realedit"; render(); });
+  const saveRealBtn=document.getElementById("save-real-btn");
+  if(saveRealBtn) saveRealBtn.addEventListener("click",()=>{
+    const r={
+      deposit:parseFloat(document.getElementById("r-deposit").value)||0,
+      broker:document.getElementById("r-broker").value.trim(),
+    };
+    state.real=r; saveReal(r); state.view="list"; render();
+  });
+
+  // jump from trade form to Terms tab
+  document.querySelectorAll("[data-goto-terms]").forEach(b=>b.addEventListener("click",()=>{
+    state.tab="terms"; state.view="list"; state.draft=null; render();
+  }));
+
+  // ICT terms library screen
+  const termsList=document.getElementById("terms-list");
+  if(termsList){
+    let selected=new Set(loadCustomConcepts() || CONCEPTS_DEFAULT);
+    const updateCount=()=>{ const el=document.getElementById("terms-count"); if(el) el.textContent=selected.size; };
+    termsList.querySelectorAll("[data-term]").forEach(chip=>chip.addEventListener("click",()=>{
+      const term=chip.dataset.term;
+      if(selected.has(term)){ selected.delete(term); chip.classList.remove("active-gold"); }
+      else{ selected.add(term); chip.classList.add("active-gold"); }
+      updateCount();
+    }));
+    const selectAllBtn=document.getElementById("terms-selectall");
+    if(selectAllBtn) selectAllBtn.addEventListener("click",()=>{
+      selected=new Set(Object.values(ICT_LIBRARY).flat());
+      termsList.querySelectorAll("[data-term]").forEach(chip=>chip.classList.add("active-gold"));
+      updateCount();
+    });
+    const clearBtn=document.getElementById("terms-clear");
+    if(clearBtn) clearBtn.addEventListener("click",()=>{
+      selected=new Set();
+      termsList.querySelectorAll("[data-term]").forEach(chip=>chip.classList.remove("active-gold"));
+      updateCount();
+    });
+    const saveTermsBtn=document.getElementById("terms-save-btn");
+    if(saveTermsBtn) saveTermsBtn.addEventListener("click",()=>{
+      saveCustomConcepts([...selected]);
+      alert("Saqlandi! Endi savdo qo'shishda shu terminlar ko'rinadi.");
+    });
+  }
 }
 
 /* ---------------- telegram integration ---------------- */
@@ -683,3 +987,4 @@ render();
 </script>
 </body>
 </html>
+
